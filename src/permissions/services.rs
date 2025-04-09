@@ -1,10 +1,8 @@
 use diesel::prelude::*;
 use uuid::Uuid;
 
-use crate::auth::models::User;
-use crate::db::schema::{permissions, roles, users};
-use crate::errors::ServiceError;
 use crate::permissions::models::*;
+use crate::errors::ServiceError;
 
 // 创建角色
 pub fn create_role(
@@ -74,52 +72,50 @@ pub fn assign_role_to_user(
     user_id: Uuid,
     role_id: Uuid,
 ) -> Result<UserRole, ServiceError> {
-    use crate::db::schema::user_roles::dsl::*;
-    
+    use crate::db::schema::user_roles;
+    use crate::db::schema::users;
+    use crate::db::schema::roles;
     // 检查用户角色是否已存在
-    let existing_count = user_roles
-        .filter(crate::db::schema::user_roles::user_id.eq(&user_id)
-                .and(crate::db::schema::user_roles::role_id.eq(&role_id)))
-        .count()
-        .get_result::<i64>(db)?;
-    
+    let existing_count: i64 = user_roles::table                             // 1. 先指定 table (user_roles)
+        .filter(user_roles::user_id.eq(user_id).and(user_roles::role_id.eq(role_id))) // 2. 再 filter
+        .select(diesel::dsl::count_star())                                   // 3. 再 select (count(*))
+        .first(db)?;                                                       // 4. 执行
     if existing_count > 0 {
-        let existing = user_roles
-            .filter(crate::db::schema::user_roles::user_id.eq(&user_id)
-                    .and(crate::db::schema::user_roles::role_id.eq(&role_id)))
-            .first::<UserRole>(db)
-            .optional()?;
+        let existing = user_roles::table
+            .filter(user_roles::user_id.eq(user_id).and(user_roles::role_id.eq(role_id)))
+            .first::<UserRole>(db)?;
         
-        return Ok(existing.unwrap());
+        return Ok(existing);
     }
     
     // 检查用户是否存在
-    let user_exists = crate::db::schema::users::table
-        .find(user_id)
-        .count()
-        .get_result::<i64>(db)?;
+    let user_exists: i64 = users::table
+        .filter(users::id.eq(user_id))
+        .select(diesel::dsl::count_star())
+        .first(db)?;
     
     if user_exists == 0 {
         return Err(ServiceError::UserNotFound);
     }
     
     // 检查角色是否存在
-    let role_exists = crate::db::schema::roles::table
-        .find(role_id)
-        .count()
-        .get_result::<i64>(db)?;
+    let role_exists: i64 = roles::table
+        .filter(roles::id.eq(role_id))
+        .select(diesel::dsl::count_star())
+        .first(db)?;
     
     if role_exists == 0 {
         return Err(ServiceError::RoleNotFound);
     }
     
+    // 创建用户角色关联
     let new_user_role = (
-        crate::db::schema::user_roles::user_id.eq(user_id),
-        crate::db::schema::user_roles::role_id.eq(role_id),
-        crate::db::schema::user_roles::created_at.eq(diesel::dsl::now),
+        user_roles::user_id.eq(user_id),
+        user_roles::role_id.eq(role_id),
+        user_roles::created_at.eq(diesel::dsl::now),
     );
     
-    let user_role = diesel::insert_into(crate::db::schema::user_roles::table)
+    let user_role = diesel::insert_into(user_roles::table)
         .values(new_user_role)
         .get_result::<UserRole>(db)?;
     
@@ -132,52 +128,52 @@ pub fn assign_permission_to_role(
     role_id: Uuid,
     permission_id: Uuid,
 ) -> Result<RolePermission, ServiceError> {
-    use crate::db::schema::role_permissions::dsl::*;
+    use crate::db::schema::role_permissions;
+    use crate::db::schema::roles;
+    use crate::db::schema::permissions;
     
     // 检查角色权限是否已存在
-    let existing_count = role_permissions
-        .filter(crate::db::schema::role_permissions::role_id.eq(&role_id)
-                .and(crate::db::schema::role_permissions::permission_id.eq(&permission_id)))
-        .count()
-        .get_result::<i64>(db)?;
+    let existing_count: i64 = role_permissions::table
+        .filter(role_permissions::role_id.eq(role_id).and(role_permissions::permission_id.eq(permission_id)))
+        .select(diesel::dsl::count_star())
+        .first(db)?;
     
     if existing_count > 0 {
-        let existing = role_permissions
-            .filter(crate::db::schema::role_permissions::role_id.eq(&role_id)
-                    .and(crate::db::schema::role_permissions::permission_id.eq(&permission_id)))
-            .first::<RolePermission>(db)
-            .optional()?;
+        let existing = role_permissions::table
+            .filter(role_permissions::role_id.eq(role_id).and(role_permissions::permission_id.eq(permission_id)))
+            .first::<RolePermission>(db)?;
         
-        return Ok(existing.unwrap());
+        return Ok(existing);
     }
     
     // 检查角色是否存在
-    let role_exists = crate::db::schema::roles::table
-        .find(role_id)
-        .count()
-        .get_result::<i64>(db)?;
+    let role_exists: i64 = roles::table
+        .filter(roles::id.eq(role_id))
+        .select(diesel::dsl::count_star())
+        .first(db)?;
     
     if role_exists == 0 {
         return Err(ServiceError::RoleNotFound);
     }
     
     // 检查权限是否存在
-    let permission_exists = crate::db::schema::permissions::table
-        .find(permission_id)
-        .count()
-        .get_result::<i64>(db)?;
+    let permission_exists: i64 = permissions::table
+        .filter(permissions::id.eq(permission_id))
+        .select(diesel::dsl::count_star())
+        .first(db)?;
     
     if permission_exists == 0 {
         return Err(ServiceError::PermissionNotFound);
     }
     
+    // 创建角色权限关联
     let new_role_permission = (
-        crate::db::schema::role_permissions::role_id.eq(role_id),
-        crate::db::schema::role_permissions::permission_id.eq(permission_id),
-        crate::db::schema::role_permissions::created_at.eq(diesel::dsl::now),
+        role_permissions::role_id.eq(role_id),
+        role_permissions::permission_id.eq(permission_id),
+        role_permissions::created_at.eq(diesel::dsl::now),
     );
     
-    let role_permission = diesel::insert_into(crate::db::schema::role_permissions::table)
+    let role_permission = diesel::insert_into(role_permissions::table)
         .values(new_role_permission)
         .get_result::<RolePermission>(db)?;
     
@@ -189,10 +185,10 @@ pub fn get_user_roles(
     db: &mut PgConnection,
     target_user_id: Uuid,
 ) -> Result<Vec<UserRole>, ServiceError> {
-    use crate::db::schema::user_roles::dsl::*;
+    use crate::db::schema::user_roles;
     
-    let user_roles_list = user_roles
-        .filter(crate::db::schema::user_roles::user_id.eq(&target_user_id))
+    let user_roles_list = user_roles::table
+        .filter(user_roles::user_id.eq(target_user_id))
         .load::<UserRole>(db)?;
     
     Ok(user_roles_list)
@@ -203,10 +199,10 @@ pub fn get_role_permissions(
     db: &mut PgConnection,
     target_role_id: Uuid,
 ) -> Result<Vec<RolePermission>, ServiceError> {
-    use crate::db::schema::role_permissions::dsl::*;
+    use crate::db::schema::role_permissions;
     
-    let role_permissions_list = role_permissions
-        .filter(crate::db::schema::role_permissions::role_id.eq(&target_role_id))
+    let role_permissions_list = role_permissions::table
+        .filter(role_permissions::role_id.eq(target_role_id))
         .load::<RolePermission>(db)?;
     
     Ok(role_permissions_list)
@@ -219,6 +215,9 @@ pub fn check_user_permission(
     resource: &str,
     action: &str,
 ) -> Result<bool, ServiceError> {
+    use crate::db::schema::permissions;
+    use crate::db::schema::role_permissions;
+    
     // 获取用户的所有角色
     let user_roles_list = get_user_roles(db, user_id)?;
     
@@ -228,11 +227,8 @@ pub fn check_user_permission(
     }
     
     // 获取权限
-    let permission = crate::db::schema::permissions::table
-        .filter(
-            crate::db::schema::permissions::resource.eq(resource)
-                .and(crate::db::schema::permissions::action.eq(action))
-        )
+    let permission = permissions::table
+        .filter(permissions::resource.eq(resource).and(permissions::action.eq(action)))
         .first::<Permission>(db)
         .optional()?;
     
@@ -242,19 +238,18 @@ pub fn check_user_permission(
     };
     
     // 检查用户的角色是否有该权限
+
     for user_role in user_roles_list {
-        let role_permission_count = crate::db::schema::role_permissions::table
-            .filter(
-                crate::db::schema::role_permissions::role_id.eq(user_role.role_id)
-                    .and(crate::db::schema::role_permissions::permission_id.eq(permission.id))
-            )
-            .count()
-            .get_result::<i64>(db)?;
-        
+        // --- 修改后的查询 ---
+        let role_permission_count: i64 = role_permissions::table // 1. 先指定 table
+            .filter(role_permissions::role_id.eq(user_role.role_id).and(role_permissions::permission_id.eq(permission.id))) // 2. 再 filter
+            .select(diesel::dsl::count_star())                   // 3. 再 select (count(*))
+            .first(db)?;                                         // 4. 执行
+        // --- 修改结束 ---
+
         if role_permission_count > 0 {
             return Ok(true);
         }
     }
-    
     Ok(false)
 }
